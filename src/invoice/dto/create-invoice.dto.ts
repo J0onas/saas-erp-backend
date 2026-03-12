@@ -1,4 +1,4 @@
-import { IsString, IsNumber, ValidateNested, IsArray, IsDateString } from 'class-validator';
+import { IsString, IsNumber, IsBoolean, IsOptional, ValidateNested, IsArray, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class CompanyInfoDto {
@@ -15,6 +15,13 @@ class CustomerInfoDto {
 
 class InvoiceItemDto {
     @IsNumber() id: number;
+
+    // --- NUEVO PASE VIP PARA EL KARDEX ---
+    @IsOptional()
+    @IsString()
+    productId?: string;
+    // -------------------------------------
+
     @IsString() description: string;
     @IsNumber() quantity: number;
     @IsNumber() unitValue: number;
@@ -23,6 +30,28 @@ class InvoiceItemDto {
 }
 
 export class CreateInvoiceDto {
+    // --- NUEVO PASE VIP PARA DETRACCIONES ---
+    @IsOptional()
+    @IsBoolean()
+    hasDetraction?: boolean;
+
+    @IsOptional()
+    @IsNumber()
+    detractionPercent?: number;
+
+    @IsOptional()
+    @IsNumber()
+    detractionAmount?: number;
+    // ----------------------------------------
+
+    @IsOptional()
+    @IsString()
+    paymentMethod?: string;
+
+    @IsOptional()
+    @IsString()
+    customerEmail?: string;
+
     @IsString() serieNumber: string;
     @IsDateString() issueDate: string;
     @IsString() issueTime: string;

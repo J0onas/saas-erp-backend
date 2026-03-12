@@ -1,15 +1,11 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { HttpModule } from '@nestjs/axios'; // <-- IMPORTACIÓN NUEVA
+import { HttpModule } from '@nestjs/axios';
 import { InvoiceService } from './invoice.service';
 import { InvoiceController } from './invoice.controller';
-import { InvoiceEntity } from './entities/invoice.entity';
+import { EmailModule } from '../email/email.module'; // <-- IMPORTAMOS EL MÓDULO
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([InvoiceEntity]),
-    HttpModule // <-- HABILITADO AQUÍ
-  ],
+  imports: [HttpModule, EmailModule], // <-- LO AGREGAMOS AQUÍ
   controllers: [InvoiceController],
   providers: [InvoiceService],
 })
