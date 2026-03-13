@@ -12,14 +12,13 @@ import { CashModule } from './cash/cash.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forRoot({
+ TypeOrmModule.forRoot({
   type: 'postgres',
   
-  // 1. Pega tu NUEVO link de "Transaction" aquí.
-  // 2. Reemplaza [YOUR-PASSWORD] por: n8JeEWZ9TeEwK%40C
-  url: 'postgresql://postgres.jshsfrqeapbggbwmadcw:n8JeEWZ9TeEwK%40C@aws-1-sa-east-1.pooler.supabase.com:6543/postgres',
+  // 1. Llamamos a la "Caja Fuerte" de Render (o a tu archivo .env local)
+  url: process.env.DATABASE_URL,
   
-  // Esto es obligatorio para Supabase
+  // 2. ¡CRÍTICO PARA SUPABASE! Mantén esto intacto, no lo borres.
   ssl: { 
     rejectUnauthorized: false 
   },
