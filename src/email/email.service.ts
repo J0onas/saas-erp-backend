@@ -8,12 +8,16 @@ export class EmailService {
 
     constructor() {
         this.transporter = nodemailer.createTransport({
-            service: 'gmail',
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true, // true requiere el puerto 465
             auth: {
-                // Sacamos los datos de la "Caja Fuerte"
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS 
-            }
+            },
+            // ¡EL TRUCO DE SUPERVIVENCIA! 
+            // Si el cortafuegos lo bloquea, cancela a los 10 segundos para no colgar el servidor y soltar el error.
+            connectionTimeout: 10000, 
         });
     }
 
