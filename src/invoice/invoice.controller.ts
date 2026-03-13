@@ -78,7 +78,7 @@ export class InvoiceController {
         const tenantId = req.user.tenantId;
         
         // 1. Inicializamos Mercado Pago (REEMPLAZA CON TU ACCESS TOKEN DE PRUEBA)
-        const client = new MercadoPagoConfig({ accessToken: 'APP_USR-3873423299302547-031003-0e4085f173b3844d6a0d01075750d199-3257400458' });
+        const client = new MercadoPagoConfig({ accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN! });
 
         // 2. Creamos la "Preferencia" (Es el ticket de cobro en el sistema de MP)
         const preference = new Preference(client);
@@ -128,7 +128,7 @@ export class InvoiceController {
 
             try {
                 // 1. Inicializamos MP con tu token
-                const client = new MercadoPagoConfig({ accessToken: 'APP_USR-3873423299302547-031003-0e4085f173b3844d6a0d01075750d199-3257400458' });
+                const client = new MercadoPagoConfig({ accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN! });
                 const payment = new Payment(client);
 
                 // 2. Le preguntamos a MP: "¿Es cierto que este pago existe y está aprobado?"
