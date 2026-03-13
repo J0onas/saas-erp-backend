@@ -10,15 +10,14 @@ export class EmailService {
         this.transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
             port: 465,
-            secure: true, // true requiere el puerto 465
+            secure: true,
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS 
             },
-            // ¡EL TRUCO DE SUPERVIVENCIA! 
-            // Si el cortafuegos lo bloquea, cancela a los 10 segundos para no colgar el servidor y soltar el error.
+            family: 4,
             connectionTimeout: 10000, 
-        });
+        } as any); // <-- ¡Aquí está la magia (as any)!
     }
 
     async sendInvoiceEmail(toEmail: string, clientName: string, invoiceNumber: string, pdfBase64: string) {
