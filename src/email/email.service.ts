@@ -10,8 +10,9 @@ export class EmailService {
         this.transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: {
-                user: 'zorrillalucajhonathan@gmail.com',      // <-- PON TU CORREO REAL AQUÍ
-                pass: 'gqfsvrevmvayyyng'     // <-- PON LA CLAVE QUE GENERASTE (Sin espacios)
+                // Sacamos los datos de la "Caja Fuerte"
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS 
             }
         });
     }
@@ -23,7 +24,8 @@ export class EmailService {
             const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
             await this.transporter.sendMail({
-                from: '"TECH SOLUTIONS SAC" <zorrillalucajhonathan@gmail.com>', // <-- PON TU CORREO AQUÍ TAMBIÉN
+                // También usamos la variable aquí para no dejar rastros
+                from: `"TECH SOLUTIONS SAC" <${process.env.EMAIL_USER}>`, 
                 to: toEmail,
                 subject: `Tu Factura Electrónica ${invoiceNumber} ha sido emitida`,
                 html: `
