@@ -14,7 +14,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000', 
-      'https://saas-erp-frontend-dxmzj3zfr-j0onas-projects.vercel.app'
+      'https://saas-erp-frontend.vercel.app/login'
     ],
     credentials: true, // Vital para las cookies
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
