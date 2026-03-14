@@ -7,17 +7,8 @@ import { Request } from 'express'; // <-- Importamos Request
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
     super({
-      // --- FIX BUG #5: Leer token desde la cookie ---
-      jwtFromRequest: ExtractJwt.fromExtractors([
-        (request: Request) => {
-          // Buscamos la cookie que acabamos de crear en el controller
-          const token = request?.cookies?.token;
-          if (!token) {
-            return null;
-          }
-          return token;
-        },
-      ]),
+      // --- VOLVEMOS AL ESTÁNDAR BEARER TOKEN ---
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET || 'tu_secreto_super_seguro', 
     });

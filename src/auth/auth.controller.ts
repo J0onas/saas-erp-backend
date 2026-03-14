@@ -27,14 +27,16 @@ export class AuthController {
     // sin tener que modificar auth.service.ts
     const payload = JSON.parse(Buffer.from(result.access_token.split('.')[1], 'base64').toString());
 
+    // Puedes dejar lo de la cookie, pero agregamos el access_token al return
     return { 
       success: true, 
       message: 'Login exitoso',
+      access_token: result.access_token, // <-- ¡VOLVEMOS A ENVIAR EL TOKEN!
       user: {
         id: payload.sub,
         email: payload.email,
         tenantId: payload.tenantId,
-        role: payload.role || 'CAJERO' // Por defecto si aún no existe en BD
+        role: payload.role || 'CAJERO' 
       } 
     };
   }
