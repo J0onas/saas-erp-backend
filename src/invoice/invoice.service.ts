@@ -27,9 +27,14 @@ export class InvoiceService {
         let invoiceId: string;
         let realSerieNumber: string;
         const metodoPago = (invoiceData as any).paymentMethod || 'EFECTIVO';
+        
+        // Asignamos la serie fijada temporalmente (Fase 1 luego adaptará Boletas)
+        const serie = 'F001'; 
 
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            // --- FIX BUG #1: PREVENCIÓN SQL INJECTION ---
+            // Usamos set_config de forma segura con parámetros parametrizados ($1)
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
             
             // --- MAGIA 1: Guardar cliente ---
             const clientExists = await queryRunner.query(
@@ -43,19 +48,24 @@ export class InvoiceService {
                 );
             }
 
-            // --- MAGIA 3: Correlativos ---
+            // --- FIX BUG #4: CORRELATIVOS CONCURRENTES (FOR UPDATE) ---
+            // Bloqueamos la fila temporalmente para que nadie más tome este número
             const seqResult = await queryRunner.query(
-                `SELECT COALESCE(MAX(correlative), 0) + 1 as next_num FROM invoices WHERE serie = 'F001'`
+                `SELECT correlative FROM invoices WHERE serie = $1 ORDER BY correlative DESC LIMIT 1 FOR UPDATE`,
+                [serie]
             );
-            const nextCorrelative = parseInt(seqResult[0].next_num);
-            realSerieNumber = `F001-${nextCorrelative.toString().padStart(8, '0')}`;
+            
+            // Calculamos el siguiente número atómicamente
+            const nextCorrelative = seqResult.length > 0 ? parseInt(seqResult[0].correlative) + 1 : 1;
+            
+            realSerieNumber = `${serie}-${nextCorrelative.toString().padStart(8, '0')}`;
             invoiceData.serieNumber = realSerieNumber;
 
            // --- EXTRAER VARIABLES DE DETRACCIÓN ---
             const tieneDetraccion = (invoiceData as any).hasDetraction || false;
             const detPorcentaje = (invoiceData as any).detractionPercent || 0;
             const detMonto = (invoiceData as any).detractionAmount || 0;
-            
+
             // --- INSERTAR FACTURA ---
             const insertResult = await queryRunner.query(
                 `INSERT INTO invoices 
@@ -65,7 +75,7 @@ export class InvoiceService {
                     tenantId, 
                     invoiceData.customer.documentNumber, 
                     invoiceData.totalAmount, 
-                    'F001', 
+                    serie, // Usamos la variable de serie aquí
                     nextCorrelative, 
                     invoiceData.issueDate, 
                     invoiceData.issueTime, 
@@ -81,13 +91,13 @@ export class InvoiceService {
             if (invoiceData.items && invoiceData.items.length > 0) {
                 for (const item of invoiceData.items) {
                     
-                    // 1. Guardamos la línea de la factura (MANDANDO EL PRODUCT_ID)
+                    // 1. Guardamos la línea de la factura
                     await queryRunner.query(
                         `INSERT INTO invoice_items (invoice_id, product_id, description, quantity, unit_price, total_price)
                          VALUES ($1, $2, $3, $4, $5, $6)`,
                         [
                             invoiceId, 
-                            (item as any).productId || null, // Recibimos el ID del frontend
+                            (item as any).productId || null, 
                             item.description, 
                             item.quantity, 
                             item.unitPrice, 
@@ -95,11 +105,10 @@ export class InvoiceService {
                         ]
                     );
 
-                    // 2. KARDEX OFICIAL (Sprint 2.1)
+                    // 2. KARDEX OFICIAL
                     if ((item as any).productId) {
                         this.logger.log(`KARDEX: Descontando ${item.quantity} unidades del producto ${(item as any).productId}`);
                         
-                        // a) Actualizamos el stock real
                         await queryRunner.query(
                             `UPDATE products 
                              SET stock_quantity = stock_quantity - $1 
@@ -107,7 +116,7 @@ export class InvoiceService {
                             [item.quantity, (item as any).productId, tenantId]
                         );
 
-                        // b) Registramos el movimiento
+                        // NOTA: Esta línea fallará hasta que corras la migración que crea `inventory_movements` (Bug #2)
                         await queryRunner.query(
                             `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason)
                              VALUES ($1, $2, $3, $4, $5)`,
@@ -138,7 +147,8 @@ export class InvoiceService {
         try {
             await lastValueFrom(this.httpService.post('https://jsonplaceholder.typicode.com/posts', { data: "test" }));
             await this.dataSource.transaction(async (manager) => {
-                await manager.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+                // --- FIX BUG #1 EN LA SEGUNDA TRANSACCIÓN ---
+                await manager.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
                 await manager.query(
                     `UPDATE invoices SET xml_ubl_status = 'ACCEPTED' WHERE id = $1 AND tenant_id = $2`,
                     [invoiceId, tenantId]
@@ -176,7 +186,7 @@ export class InvoiceService {
         await queryRunner.startTransaction();
 
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
 
             const invoices = await queryRunner.query(
                 `SELECT 
@@ -213,7 +223,7 @@ export class InvoiceService {
         await queryRunner.startTransaction();
 
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
 
             // 1. Unir la Factura con los datos reales del Cliente
             const invoiceResult = await queryRunner.query(
@@ -317,7 +327,7 @@ export class InvoiceService {
         await queryRunner.startTransaction(); 
         
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
 
             // 1. KPIs Generales + Ticket Promedio
             const kpis = await queryRunner.query(`
@@ -392,7 +402,7 @@ export class InvoiceService {
         await queryRunner.startTransaction(); 
         
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
 
             // Extraemos la data con el formato exacto que pide el contador/SUNAT
             const reportData = await queryRunner.query(`

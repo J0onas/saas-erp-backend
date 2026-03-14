@@ -20,7 +20,7 @@ export class ClientService {
         await queryRunner.startTransaction();
         
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
             
             // 1. Buscamos primero en nuestra bóveda local
             const result = await queryRunner.query(

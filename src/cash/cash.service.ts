@@ -13,7 +13,7 @@ export class CashService {
         await queryRunner.startTransaction();
 
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
 
             // Verificar si ya hay una caja abierta
             const activeSession = await queryRunner.query(
@@ -48,7 +48,7 @@ export class CashService {
         await queryRunner.startTransaction();
 
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
 
             const session = await queryRunner.query(
                 `SELECT * FROM cash_sessions WHERE status = 'OPEN' LIMIT 1`
@@ -94,7 +94,7 @@ export class CashService {
         await queryRunner.startTransaction();
 
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
 
             // 1. Obtener la sesión activa
             const session = await queryRunner.query(

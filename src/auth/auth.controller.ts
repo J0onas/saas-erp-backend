@@ -1,19 +1,41 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, Res, HttpCode, HttpStatus } from '@nestjs/common';
+import type { Response } from 'express'; // <-- FIX 1: Agregamos la palabra "type" aquí
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 
-@Controller('api/v1/auth')
+@Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
-  }
+  @HttpCode(HttpStatus.OK)
+  async login(
+    @Body() loginDto: LoginDto, 
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const result = await this.authService.login(loginDto);
 
-  // NUEVA RUTA DE REGISTRO
-  @Post('register')
-  register(@Body() loginDto: LoginDto) {
-    return this.authService.register(loginDto);
+    // --- FIX BUG #5: JWT en Cookie httpOnly ---
+    res.cookie('token', result.access_token, {
+      httpOnly: true, // El frontend NO puede leerla con JavaScript (Adiós XSS)
+      secure: true,   // Obligatorio para cross-domain
+      sameSite: 'none', // Permite que la cookie viaje de Render a Vercel
+      maxAge: 1000 * 60 * 60 * 24 // 1 día
+    });
+
+    // FIX 2: Decodificamos el JWT aquí mismo para extraer los datos del usuario
+    // sin tener que modificar auth.service.ts
+    const payload = JSON.parse(Buffer.from(result.access_token.split('.')[1], 'base64').toString());
+
+    return { 
+      success: true, 
+      message: 'Login exitoso',
+      user: {
+        id: payload.sub,
+        email: payload.email,
+        tenantId: payload.tenantId,
+        role: payload.role || 'CAJERO' // Por defecto si aún no existe en BD
+      } 
+    };
   }
 }

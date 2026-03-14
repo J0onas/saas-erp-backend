@@ -19,7 +19,7 @@ export class SettingsService {
         // -----------------------------------------
         
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
             
             const result = await queryRunner.query(
                 `SELECT business_name, ruc, address, email FROM company_settings WHERE tenant_id = $1`,
@@ -55,7 +55,7 @@ export class SettingsService {
         await queryRunner.startTransaction(); // Llave maestra
         
         try {
-            await queryRunner.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+            await queryRunner.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantId]);
             
             // Magia de PostgreSQL: Si el tenant_id no existe, inserta. Si ya existe, actualiza.
             await queryRunner.query(
