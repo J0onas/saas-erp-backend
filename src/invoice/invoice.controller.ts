@@ -6,7 +6,7 @@ import { SubscriptionGuard } from '../auth/subscription.guard';
 import { MercadoPagoConfig, Preference, Payment} from 'mercadopago';
 
 
-@Controller('api/v1/invoices')
+@Controller('invoices')
 export class InvoiceController {
     constructor(private readonly invoiceService: InvoiceService) {}
 

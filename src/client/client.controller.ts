@@ -2,7 +2,7 @@ import { Controller, Get, Param, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ClientService } from './client.service';
 
-@Controller('api/v1/clients')
+@Controller('clients')
 export class ClientController {
   constructor(private readonly clientService: ClientService) {}
 
