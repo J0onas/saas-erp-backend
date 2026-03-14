@@ -7,7 +7,8 @@ import { JwtStrategy } from './jwt.strategy'; // <-- IMPORTADO
 @Module({
   imports: [
     JwtModule.register({
-      secret: 'MI_CLAVE_SECRETA_SUPER_SEGURA_123', 
+      // Usamos la variable de entorno o una clave fija temporal
+      secret: process.env.JWT_SECRET || 'MI_CLAVE_SECRETA_SUPER_SEGURA_123', 
       signOptions: { expiresIn: '8h' }, 
     }),
   ],

@@ -6,10 +6,10 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
     super({
-      // --- VOLVEMOS AL ESTÁNDAR BEARER TOKEN ---
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'tu_secreto_super_seguro', 
+      // ¡TIENE QUE SER EXACTAMENTE LA MISMA!
+      secretOrKey: process.env.JWT_SECRET || 'MI_CLAVE_SECRETA_SUPER_SEGURA_123', 
     });
   }
 
