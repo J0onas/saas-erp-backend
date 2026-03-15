@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SettingsService } from './settings.service';
 
-@Controller('api/v1/settings')
+@Controller('settings')
 @UseGuards(AuthGuard('jwt')) // Protegemos la ruta
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
