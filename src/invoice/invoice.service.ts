@@ -91,44 +91,42 @@ export class InvoiceService {
             if (invoiceData.items && invoiceData.items.length > 0) {
                 for (const item of invoiceData.items) {
                     
-                    // 1. Guardamos la línea de la factura
-                    await queryRunner.query(
-                        `INSERT INTO invoice_items (invoice_id, product_id, description, quantity, unit_price, total_price)
-                         VALUES ($1, $2, $3, $4, $5, $6)`,
-                        [
-                            invoiceId, 
-                            (item as any).productId || null, 
-                            item.description, 
-                            item.quantity, 
-                            item.unitPrice, 
-                            (item.quantity * item.unitPrice)
-                        ]
-                    );
-
-                    // 2. KARDEX OFICIAL
                     if ((item as any).productId) {
-                        this.logger.log(`KARDEX: Descontando ${item.quantity} unidades del producto ${(item as any).productId}`);
+                        // 1. VALIDACIÓN DE STOCK ESTRICTA (FOR UPDATE bloquea concurrencia)
+                        const productResult = await queryRunner.query(
+                            `SELECT name, stock_quantity FROM products WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+                            [(item as any).productId, tenantId]
+                        );
+
+                        if (productResult.length === 0) {
+                            throw new InternalServerErrorException(`Producto no encontrado: ${item.description}`);
+                        }
+
+                        const stockActual = Number(productResult[0].stock_quantity);
                         
+                        // 🚨 EL CANDADO DE STOCK 🚨
+                        if (stockActual < item.quantity) {
+                            throw new InternalServerErrorException(`Stock insuficiente para "${productResult[0].name}". Tienes ${stockActual} pero intentas vender ${item.quantity}.`);
+                        }
+
+                        // 2. KARDEX OFICIAL: Restamos el stock de forma segura
                         await queryRunner.query(
-                            `UPDATE products 
-                             SET stock_quantity = stock_quantity - $1 
-                             WHERE id = $2 AND tenant_id = $3`,
+                            `UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2 AND tenant_id = $3`,
                             [item.quantity, (item as any).productId, tenantId]
                         );
 
-                        // NOTA: Esta línea fallará hasta que corras la migración que crea `inventory_movements` (Bug #2)
+                        // Registramos el movimiento
                         await queryRunner.query(
-                            `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason)
-                             VALUES ($1, $2, $3, $4, $5)`,
-                            [
-                                tenantId,
-                                (item as any).productId,
-                                'OUTPUT',
-                                item.quantity,
-                                `Venta Factura ${realSerieNumber}`
-                            ]
+                            `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason) VALUES ($1, $2, $3, $4, $5)`,
+                            [tenantId, (item as any).productId, 'OUTPUT', item.quantity, `Venta Factura ${realSerieNumber}`]
                         );
                     }
+
+                    // 3. Guardamos la línea de la factura
+                    await queryRunner.query(
+                        `INSERT INTO invoice_items (invoice_id, product_id, description, quantity, unit_price, total_price) VALUES ($1, $2, $3, $4, $5, $6)`,
+                        [invoiceId, (item as any).productId || null, item.description, item.quantity, item.unitPrice, (item.quantity * item.unitPrice)]
+                    );
                 }
             }
 
@@ -140,6 +138,26 @@ export class InvoiceService {
             throw new InternalServerErrorException('No se pudo guardar la factura.');
         } finally {
             await queryRunner.release();
+        }
+
+        await queryRunner.commitTransaction();
+
+        // 🚨 OBTENER LOS DATOS REALES DE LA EMPRESA DESDE LA BD 🚨
+        const companySettings = await this.dataSource.query(
+            `SELECT business_name, ruc, address FROM company_settings WHERE tenant_id = $1`,
+            [tenantId]
+        );
+
+        if (companySettings.length > 0) {
+            // Sobrescribimos el 'supplier' con los datos verdaderos de la BD
+            (invoiceData as any).supplier = {
+                ruc: companySettings[0].ruc,
+                businessName: companySettings[0].business_name,
+                addressCode: "0000" // Código ubigeo de SUNAT (puedes parametrizarlo luego)
+            };
+        } else {
+            // Fallback en caso de que el usuario aún no configure su empresa
+            (invoiceData as any).supplier = { ruc: "00000000000", businessName: "EMPRESA NO CONFIGURADA", addressCode: "0000" };
         }
 
         const xmlContent = SunatXmlBuilder.generateInvoiceXml(invoiceData as any);
