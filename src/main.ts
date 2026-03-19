@@ -14,6 +14,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000', 
+      'https://saas-erp-frontend.vercel.app',
       // ¡EL PASE VIP MAESTRO! Acepta cualquier subdominio dinámico de tu proyecto en Vercel
       /^https:\/\/saas-erp-frontend-.*\.vercel\.app$/
     ],
