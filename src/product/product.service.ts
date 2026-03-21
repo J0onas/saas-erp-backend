@@ -7,72 +7,95 @@ export class ProductService {
 
     constructor(private readonly dataSource: DataSource) {}
 
-    // ── BUSCADOR PARA EL POS ─────────────────────────────────────────────────
-    // FIX: ahora devuelve stock_quantity para que el frontend pueda bloquear
-    // productos agotados antes de agregarlos al carrito.
+    // ── BUSCADOR PARA EL POS (con código de barras) ───────────────────────────
+    // Ahora busca también por barcode y sku, además de nombre
     async searchProducts(searchTerm: string, tenantId: string) {
-        this.logger.log(`Buscando '${searchTerm}' para tenant: ${tenantId}`);
-
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
-
         try {
             await queryRunner.query(
-                `SELECT set_config('app.current_tenant', $1, true)`,
-                [tenantId]
+                `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
-
             const result = await queryRunner.query(
-                `SELECT id, code, name, unit_price, stock_quantity
-                 FROM products
-                 WHERE (name ILIKE $1 OR code ILIKE $1)
-                 ORDER BY name ASC
+                `SELECT p.id, p.code, p.name, p.unit_price,
+                        p.stock_quantity, p.barcode, p.sku,
+                        c.name AS category_name, c.color AS category_color
+                 FROM products p
+                 LEFT JOIN categories c ON p.category_id = c.id
+                 WHERE (p.name ILIKE $1 OR p.code ILIKE $1
+                     OR p.barcode ILIKE $1 OR p.sku ILIKE $1)
+                 ORDER BY p.name ASC
                  LIMIT 8`,
                 [`%${searchTerm}%`]
             );
-
             await queryRunner.commitTransaction();
             return { success: true, data: result };
-
         } catch (error) {
             await queryRunner.rollbackTransaction();
-            this.logger.error('Error buscando producto:', error);
-            throw new InternalServerErrorException('Error en la base de datos');
+            throw new InternalServerErrorException('Error buscando producto.');
         } finally {
             await queryRunner.release();
         }
     }
 
-    // ── TODO EL ALMACÉN (pantalla Inventario) ────────────────────────────────
-    async findAll(tenantId: string) {
-        this.logger.log(`Cargando inventario para tenant: ${tenantId}`);
-
+    // ── BÚSQUEDA EXACTA POR CÓDIGO DE BARRAS ──────────────────────────────────
+    // Usada por el lector de barras para agregar directamente al carrito
+    async findByBarcode(barcode: string, tenantId: string) {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
-
         try {
             await queryRunner.query(
-                `SELECT set_config('app.current_tenant', $1, true)`,
-                [tenantId]
+                `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
-
-            const products = await queryRunner.query(
-                `SELECT id, code, name, unit_price,
-                        stock_quantity,
-                        stock_quantity AS stock
-                 FROM products
-                 ORDER BY name ASC`
+            const [product] = await queryRunner.query(
+                `SELECT p.id, p.name, p.unit_price, p.stock_quantity,
+                        p.barcode, p.sku,
+                        c.name AS category_name, c.color AS category_color
+                 FROM products p
+                 LEFT JOIN categories c ON p.category_id = c.id
+                 WHERE (p.barcode = $1 OR p.sku = $1)`,
+                [barcode]
             );
-
             await queryRunner.commitTransaction();
-            return { success: true, data: products };
-
+            return { success: !!product, data: product || null };
         } catch (error) {
             await queryRunner.rollbackTransaction();
-            this.logger.error('Error obteniendo productos:', error);
-            throw new InternalServerErrorException('Error al cargar el inventario');
+            throw new InternalServerErrorException('Error buscando por código.');
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    // ── LISTAR TODO EL INVENTARIO ─────────────────────────────────────────────
+    async findAll(tenantId: string, categoryId?: string) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            await queryRunner.query(
+                `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
+            );
+            const products = await queryRunner.query(
+                `SELECT p.id, p.code, p.name, p.unit_price,
+                        p.stock_quantity, p.stock_quantity AS stock,
+                        p.min_stock, p.barcode, p.sku,
+                        p.category_id,
+                        c.name  AS category_name,
+                        c.color AS category_color
+                 FROM products p
+                 LEFT JOIN categories c ON p.category_id = c.id
+                 WHERE p.tenant_id = $1
+                   ${categoryId ? 'AND p.category_id = $2' : ''}
+                 ORDER BY c.name ASC NULLS LAST, p.name ASC`,
+                categoryId ? [tenantId, categoryId] : [tenantId]
+            );
+            await queryRunner.commitTransaction();
+            return { success: true, data: products };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw new InternalServerErrorException('Error cargando inventario.');
         } finally {
             await queryRunner.release();
         }
@@ -80,73 +103,84 @@ export class ProductService {
 
     // ── CREAR PRODUCTO ────────────────────────────────────────────────────────
     async createProduct(
-        data: { name: string; unit_price: number; stock: number },
+        data: {
+            name: string;
+            unit_price: number;
+            stock: number;
+            barcode?: string;
+            sku?: string;
+            category_id?: string;
+        },
         tenantId: string
     ) {
-        this.logger.log(`Creando producto '${data.name}' para tenant: ${tenantId}`);
-
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
-
         try {
             await queryRunner.query(
-                `SELECT set_config('app.current_tenant', $1, true)`,
-                [tenantId]
+                `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
-
-            const result = await queryRunner.query(
-                `INSERT INTO products (tenant_id, name, unit_price, stock_quantity)
-                 VALUES ($1, $2, $3, $4)
+            const [result] = await queryRunner.query(
+                `INSERT INTO products
+                 (tenant_id, name, unit_price, stock_quantity, barcode, sku, category_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                  RETURNING id, name, unit_price,
-                           stock_quantity,
-                           stock_quantity AS stock`,
-                [tenantId, data.name, data.unit_price, data.stock]
+                           stock_quantity, stock_quantity AS stock,
+                           barcode, sku, category_id`,
+                [tenantId, data.name, data.unit_price, data.stock,
+                 data.barcode || null, data.sku || null, data.category_id || null]
             );
-
             await queryRunner.commitTransaction();
-            return {
-                success: true,
-                message: 'Producto registrado exitosamente',
-                data: result[0],
-            };
-
+            return { success: true, message: 'Producto registrado.', data: result };
         } catch (error) {
             await queryRunner.rollbackTransaction();
-            this.logger.error('Error creando producto:', error);
             throw new InternalServerErrorException('No se pudo registrar el producto.');
         } finally {
             await queryRunner.release();
         }
     }
 
-    // ── VALIDAR STOCK (usado internamente por InvoiceService) ─────────────────
-    // Retorna true si todos los ítems tienen suficiente stock.
-    // Lanza excepción con el nombre del producto agotado si no alcanza.
-    async validateStock(
-        items: Array<{ productId: string; quantity: number; description: string }>,
+    // ── ACTUALIZAR PRODUCTO ───────────────────────────────────────────────────
+    async updateProduct(
+        productId: string,
         tenantId: string,
-        queryRunner: any
-    ): Promise<void> {
-        for (const item of items) {
-            if (!item.productId) continue;
-
-            const result = await queryRunner.query(
-                `SELECT name, stock_quantity FROM products WHERE id = $1 AND tenant_id = $2`,
-                [item.productId, tenantId]
+        data: {
+            name?: string;
+            unit_price?: number;
+            barcode?: string;
+            sku?: string;
+            category_id?: string;
+            min_stock?: number;
+        }
+    ) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            await queryRunner.query(
+                `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
-
-            if (result.length === 0) continue;
-
-            const producto = result[0];
-            const stockActual = Number(producto.stock_quantity);
-
-            if (stockActual < item.quantity) {
-                throw new Error(
-                    `Stock insuficiente para "${producto.name}". ` +
-                    `Disponible: ${stockActual}, solicitado: ${item.quantity}.`
-                );
-            }
+            await queryRunner.query(
+                `UPDATE products SET
+                    name        = COALESCE($1, name),
+                    unit_price  = COALESCE($2, unit_price),
+                    barcode     = COALESCE($3, barcode),
+                    sku         = COALESCE($4, sku),
+                    category_id = COALESCE($5, category_id),
+                    min_stock   = COALESCE($6, min_stock)
+                 WHERE id = $7 AND tenant_id = $8`,
+                [data.name || null, data.unit_price || null,
+                 data.barcode || null, data.sku || null,
+                 data.category_id || null, data.min_stock || null,
+                 productId, tenantId]
+            );
+            await queryRunner.commitTransaction();
+            return { success: true, message: 'Producto actualizado.' };
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw new InternalServerErrorException('Error actualizando producto.');
+        } finally {
+            await queryRunner.release();
         }
     }
 }

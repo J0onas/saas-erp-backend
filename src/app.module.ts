@@ -11,6 +11,7 @@ import { SettingsModule } from './settings/settings.module';
 import { CashModule } from './cash/cash.module';
 import { UsersModule } from './users/users.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { CategoriesModule } from './categories/categories.module';
 
 @Module({
     imports: [
@@ -30,6 +31,7 @@ import { InventoryModule } from './inventory/inventory.module';
         CashModule,
         UsersModule,
         InventoryModule,
+        CategoriesModule,
     ],
     controllers: [AppController],
     providers: [AppService],
