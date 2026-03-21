@@ -58,10 +58,14 @@ export class CreditNoteService {
                 throw new BadRequestException('Esta factura ya fue anulada anteriormente.');
             }
 
-            // ── Regla SUNAT: solo facturas del mismo día ──────────────────────
-            // Comentar este bloque en desarrollo para poder anular facturas antiguas
-            const hoy = new Date().toISOString().split('T')[0];
-            if (invoice.issue_date && invoice.issue_date.toString().split('T')[0] !== hoy) {
+            
+            const [fechaCheck] = await queryRunner.query(
+                `SELECT (issue_date = CURRENT_DATE AT TIME ZONE 'America/Lima') AS es_hoy
+                 FROM invoices WHERE id = $1`,
+                [invoiceId]
+            );
+
+            if (!fechaCheck?.es_hoy) {
                 throw new BadRequestException(
                     'Solo se pueden anular comprobantes emitidos el día de hoy. ' +
                     'Para anulaciones de días anteriores contacta a tu contador.'
