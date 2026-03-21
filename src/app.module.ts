@@ -12,6 +12,7 @@ import { CashModule } from './cash/cash.module';
 import { UsersModule } from './users/users.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { CategoriesModule } from './categories/categories.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
 
 @Module({
     imports: [
@@ -32,6 +33,7 @@ import { CategoriesModule } from './categories/categories.module';
         UsersModule,
         InventoryModule,
         CategoriesModule,
+        SuppliersModule,
     ],
     controllers: [AppController],
     providers: [AppService],
