@@ -8,13 +8,17 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { SubscriptionGuard } from '../auth/subscription.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CreditNoteService } from './credit-note.service';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 
 @Controller('invoices')
 export class InvoiceController {
-    constructor(private readonly invoiceService: InvoiceService) {}
+    constructor(
+        private readonly invoiceService: InvoiceService,
+        private readonly creditNoteService: CreditNoteService,
+    ) {}
 
-    // ── EMITIR COMPROBANTE (Cajero y Gerente pueden emitir) ───────────────────
+    // ── EMITIR COMPROBANTE ────────────────────────────────────────────────────
     @UseGuards(AuthGuard('jwt'), SubscriptionGuard, RolesGuard)
     @Roles('CAJERO', 'GERENTE', 'SUPERADMIN')
     @Post('emit')
@@ -22,7 +26,7 @@ export class InvoiceController {
         return await this.invoiceService.processNewInvoice(dto, req.user.tenantId);
     }
 
-    // ── HISTORIAL (todos los roles autenticados) ──────────────────────────────
+    // ── HISTORIAL ─────────────────────────────────────────────────────────────
     @UseGuards(AuthGuard('jwt'))
     @Get('history')
     async getHistory(@Req() req: any) {
@@ -36,7 +40,31 @@ export class InvoiceController {
         return await this.invoiceService.getInvoicePdf(invoiceId, req.user.tenantId);
     }
 
-    // ── DASHBOARD / REPORTES (solo GERENTE) ──────────────────────────────────
+    // ── ANULAR / NOTA DE CRÉDITO (solo GERENTE) ───────────────────────────────
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles('GERENTE', 'SUPERADMIN')
+    @Post(':id/cancel')
+    async cancelInvoice(
+        @Param('id') invoiceId: string,
+        @Body() body: { reason: string },
+        @Req() req: any,
+    ) {
+        return await this.creditNoteService.createCreditNote(
+            invoiceId,
+            req.user.tenantId,
+            body.reason
+        );
+    }
+
+    // ── LISTAR NOTAS DE CRÉDITO ───────────────────────────────────────────────
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles('GERENTE', 'SUPERADMIN')
+    @Get('credit-notes')
+    async getCreditNotes(@Req() req: any) {
+        return await this.creditNoteService.getCreditNotes(req.user.tenantId);
+    }
+
+    // ── REPORTES DASHBOARD (solo GERENTE) ─────────────────────────────────────
     @UseGuards(AuthGuard('jwt'), RolesGuard)
     @Roles('GERENTE', 'SUPERADMIN')
     @Get('reports/dashboard')
@@ -44,7 +72,7 @@ export class InvoiceController {
         return await this.invoiceService.getDashboardMetrics(req.user.tenantId);
     }
 
-    // ── REPORTE SIRE (solo GERENTE) ───────────────────────────────────────────
+    // ── REPORTE SIRE ──────────────────────────────────────────────────────────
     @UseGuards(AuthGuard('jwt'), RolesGuard)
     @Roles('GERENTE', 'SUPERADMIN')
     @Get('reports/sire/:year/:month')
@@ -60,7 +88,7 @@ export class InvoiceController {
         );
     }
 
-    // ── MERCADO PAGO CHECKOUT ─────────────────────────────────────────────────
+    // ── MERCADO PAGO ──────────────────────────────────────────────────────────
     @UseGuards(AuthGuard('jwt'))
     @Post('checkout')
     async createCheckout(
@@ -91,7 +119,7 @@ export class InvoiceController {
                 },
             });
             return { success: true, url: result.init_point };
-        } catch (error) {
+        } catch {
             throw new HttpException(
                 'Error al conectar con la pasarela de pagos',
                 HttpStatus.INTERNAL_SERVER_ERROR,
@@ -99,7 +127,6 @@ export class InvoiceController {
         }
     }
 
-    // ── WEBHOOK MERCADO PAGO ──────────────────────────────────────────────────
     @Post('webhook')
     async handleWebhook(@Body() body: any) {
         if (body.type === 'payment' && body.data?.id) {

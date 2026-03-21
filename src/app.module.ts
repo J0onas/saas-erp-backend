@@ -9,7 +9,8 @@ import { ProductModule } from './product/product.module';
 import { EmailModule } from './email/email.module';
 import { SettingsModule } from './settings/settings.module';
 import { CashModule } from './cash/cash.module';
-import { UsersModule } from './users/users.module';   // ← NUEVO
+import { UsersModule } from './users/users.module';
+import { InventoryModule } from './inventory/inventory.module';
 
 @Module({
     imports: [
@@ -27,7 +28,8 @@ import { UsersModule } from './users/users.module';   // ← NUEVO
         EmailModule,
         SettingsModule,
         CashModule,
-        UsersModule,     // ← NUEVO
+        UsersModule,
+        InventoryModule,
     ],
     controllers: [AppController],
     providers: [AppService],
