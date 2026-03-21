@@ -260,22 +260,22 @@ export class InvoiceService {
                 [tenantId]
             );
 
-            const invoices = await queryRunner.query(
-                `SELECT
-                    i.id,
-                    CONCAT(i.serie, '-', LPAD(i.correlative::text, 8, '0')) AS comprobante,
-                    TO_CHAR(i.issue_date, 'YYYY-MM-DD') AS fecha,
-                    i.customer_document,
-                    c.full_name,
-                    i.total_amount,
-                    i.payment_method,
-                    i.xml_ubl_status
-                    i.serie,
-                    i.cancelled
-                 FROM invoices i
-                 LEFT JOIN clients c ON i.customer_document = c.document_number
-                 ORDER BY i.correlative DESC`
-            );
+            const invoices = await queryRunner.query(`
+    SELECT
+        i.id,
+        CONCAT(i.serie, '-', LPAD(i.correlative::text, 8, '0')) AS comprobante,
+        TO_CHAR(i.issue_date, 'YYYY-MM-DD') AS fecha,
+        i.customer_document,
+        c.full_name,
+        i.total_amount,
+        i.payment_method,
+        i.xml_ubl_status,
+        i.serie,
+        i.cancelled
+    FROM invoices i
+    LEFT JOIN clients c ON i.customer_document = c.document_number
+    ORDER BY i.correlative DESC
+`);
 
             await queryRunner.commitTransaction();
             return invoices;
