@@ -9,32 +9,27 @@ import { ProductModule } from './product/product.module';
 import { EmailModule } from './email/email.module';
 import { SettingsModule } from './settings/settings.module';
 import { CashModule } from './cash/cash.module';
+import { UsersModule } from './users/users.module';   // ← NUEVO
 
 @Module({
-  imports: [
- TypeOrmModule.forRoot({
-  type: 'postgres',
-  
-  // 1. Llamamos a la "Caja Fuerte" de Render (o a tu archivo .env local)
-  url: process.env.DATABASE_URL,
-  
-  // 2. ¡CRÍTICO PARA SUPABASE! Mantén esto intacto, no lo borres.
-  ssl: { 
-    rejectUnauthorized: false 
-  },
-  
-  autoLoadEntities: true,
-  synchronize: false,
-}),
-    InvoiceModule,
-    AuthModule,
-    ClientModule,
-    ProductModule,
-    EmailModule,
-    SettingsModule,
-    CashModule,
-  ],
-  controllers: [AppController],
-  providers: [AppService],
+    imports: [
+        TypeOrmModule.forRoot({
+            type: 'postgres',
+            url: process.env.DATABASE_URL,
+            ssl: { rejectUnauthorized: false },
+            autoLoadEntities: true,
+            synchronize: false,
+        }),
+        InvoiceModule,
+        AuthModule,
+        ClientModule,
+        ProductModule,
+        EmailModule,
+        SettingsModule,
+        CashModule,
+        UsersModule,     // ← NUEVO
+    ],
+    controllers: [AppController],
+    providers: [AppService],
 })
 export class AppModule {}
