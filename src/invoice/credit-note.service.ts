@@ -60,10 +60,15 @@ export class CreditNoteService {
 
             
             const [fechaCheck] = await queryRunner.query(
-                `SELECT (issue_date = CURRENT_DATE AT TIME ZONE 'America/Lima') AS es_hoy
+                `SELECT
+                 issue_date,
+                 (NOW() AT TIME ZONE 'America/Lima')::date AS hoy_lima,
+                 issue_date = (NOW() AT TIME ZONE 'America/Lima')::date AS es_hoy
                  FROM invoices WHERE id = $1`,
                 [invoiceId]
             );
+
+            this.logger.log(`Fecha factura: ${fechaCheck?.issue_date} | Hoy Lima: ${fechaCheck?.hoy_lima} | Es hoy: ${fechaCheck?.es_hoy}`);
 
             if (!fechaCheck?.es_hoy) {
                 throw new BadRequestException(
