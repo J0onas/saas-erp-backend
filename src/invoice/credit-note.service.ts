@@ -31,15 +31,24 @@ export class CreditNoteService {
                 `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
 
-            // ── Verificar que la factura existe y pertenece al tenant ─────────
+            // Primero bloqueamos solo la factura con FOR UPDATE
             const [invoice] = await queryRunner.query(
-                `SELECT i.*, c.full_name, c.document_type
-                 FROM invoices i
-                 LEFT JOIN clients c ON i.customer_document = c.document_number
-                 WHERE i.id = $1 AND i.tenant_id = $2
+                `SELECT * FROM invoices
+                 WHERE id = $1 AND tenant_id = $2
                  FOR UPDATE`,
                 [invoiceId, tenantId]
             );
+
+            // Luego traemos el nombre del cliente por separado (sin FOR UPDATE)
+            if (invoice) {
+                const [cliente] = await queryRunner.query(
+                    `SELECT full_name, document_type FROM clients
+                     WHERE document_number = $1`,
+                    [invoice.customer_document]
+                );
+                invoice.full_name = cliente?.full_name || 'Cliente sin registrar';
+                invoice.document_type = cliente?.document_type || '6';
+            }
 
             if (!invoice) {
                 throw new BadRequestException('Factura no encontrada.');
