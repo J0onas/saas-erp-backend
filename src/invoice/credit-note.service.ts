@@ -82,8 +82,7 @@ export class CreditNoteService {
             const [seqResult] = await queryRunner.query(
                 `SELECT COALESCE(MAX(correlative), 0) + 1 AS next
                  FROM credit_notes
-                 WHERE tenant_id = $1 AND serie = $2
-                 FOR UPDATE`,
+                 WHERE tenant_id = $1 AND serie = $2`,
                 [tenantId, serieCN]
             );
             const nextCorrelative = parseInt(seqResult.next);
