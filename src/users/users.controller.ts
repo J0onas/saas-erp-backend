@@ -6,22 +6,24 @@ import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { PlanGuard, UsePlanLimit } from '../plans/plan.guard';
 
 @Controller('users')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 export class UsersController {
     constructor(private readonly usersService: UsersService) {}
 
-    // GET /api/v1/users — solo GERENTE
     @Get()
     @Roles('GERENTE', 'SUPERADMIN')
     async getAll(@Req() req: any) {
         return await this.usersService.findAll(req.user.tenantId);
     }
 
-    // POST /api/v1/users/invite — crear nuevo usuario
+    // ← PlanGuard verifica límite de usuarios antes de invitar
     @Post('invite')
     @Roles('GERENTE', 'SUPERADMIN')
+    @UseGuards(PlanGuard)
+    @UsePlanLimit('users')
     async invite(
         @Body() body: { email: string; fullName: string; role: string; password: string },
         @Req() req: any
@@ -29,7 +31,6 @@ export class UsersController {
         return await this.usersService.inviteUser(req.user.tenantId, body);
     }
 
-    // PATCH /api/v1/users/:id/role — cambiar rol
     @Patch(':id/role')
     @Roles('GERENTE', 'SUPERADMIN')
     async updateRole(
@@ -40,7 +41,6 @@ export class UsersController {
         return await this.usersService.updateRole(req.user.tenantId, userId, body.role);
     }
 
-    // PATCH /api/v1/users/:id/toggle — activar/desactivar
     @Patch(':id/toggle')
     @Roles('GERENTE', 'SUPERADMIN')
     async toggle(
@@ -51,7 +51,6 @@ export class UsersController {
         return await this.usersService.toggleActive(req.user.tenantId, userId, body.active);
     }
 
-    // GET /api/v1/users/me — cualquier usuario puede ver su propio perfil
     @Get('me')
     async getMe(@Req() req: any) {
         return {
