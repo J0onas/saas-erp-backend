@@ -43,10 +43,12 @@ export class AdminService {
                     COUNT(DISTINCT u.id)::int                AS total_users,
                     COUNT(DISTINCT i.id)::int                AS total_invoices,
                     COALESCE(SUM(i.total_amount), 0)         AS total_revenue,
-                    MAX(u.created_at)                        AS last_activity
+                    MAX(u.created_at)                        AS last_activity,
+                    p.display_name                           AS plan_name
                 FROM tenants t
                 LEFT JOIN users u    ON u.tenant_id = t.id
                 LEFT JOIN invoices i ON i.tenant_id = t.id
+                LEFT JOIN plans p ON t.plan_id = p.id
                 ${where}
                 GROUP BY t.id, t.business_name, t.ruc,
                          t.subscription_status, t.subscription_valid_until, t.created_at
