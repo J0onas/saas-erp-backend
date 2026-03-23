@@ -15,6 +15,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { AdminModule } from './admin/admin.module';
 import { PlansModule } from './plans/plans.module';
+import { BranchesModule } from './branches/branches.module';
 
 @Module({
     imports: [
@@ -38,6 +39,7 @@ import { PlansModule } from './plans/plans.module';
         SuppliersModule,
         AdminModule,
         PlansModule,
+        BranchesModule,
     ],
     controllers: [AppController],
     providers: [AppService],

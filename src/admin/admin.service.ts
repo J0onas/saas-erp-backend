@@ -51,7 +51,8 @@ export class AdminService {
                 LEFT JOIN plans p ON t.plan_id = p.id
                 ${where}
                 GROUP BY t.id, t.business_name, t.ruc,
-                         t.subscription_status, t.subscription_valid_until, t.created_at
+                         t.subscription_status, t.subscription_valid_until, t.created_at,
+                         p.display_name
                 ORDER BY t.created_at DESC
                 LIMIT $${pIdx} OFFSET $${pIdx + 1}
             `, [...params, limit, offset]),
