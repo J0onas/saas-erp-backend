@@ -25,14 +25,15 @@ export class BranchesService {
                     b.id, b.name, b.address, b.phone,
                     b.is_main, b.is_active,
                     TO_CHAR(b.created_at, 'YYYY-MM-DD') AS created_at,
-                    COUNT(DISTINCT u.id)::int  AS total_users,
-                    COUNT(DISTINCT i.id)::int  AS total_invoices,
-                    COALESCE(SUM(i.total_amount), 0) AS total_revenue
+                    COUNT(DISTINCT u.id)::int             AS total_users,
+                    COUNT(DISTINCT i.id)::int             AS total_invoices,
+                    COALESCE(SUM(i.total_amount), 0)      AS total_revenue
                 FROM branches b
                 LEFT JOIN users    u ON u.branch_id = b.id
                 LEFT JOIN invoices i ON i.branch_id = b.id
                 WHERE b.tenant_id = $1
-                GROUP BY b.id, b.name, b.address, b.phone, b.is_main, b.is_active, b.created_at
+                GROUP BY b.id, b.name, b.address, b.phone,
+                         b.is_main, b.is_active, b.created_at
                 ORDER BY b.is_main DESC, b.name ASC
             `, [tenantId]);
             await queryRunner.commitTransaction();
@@ -54,7 +55,6 @@ export class BranchesService {
         if (!data.name?.trim()) {
             throw new BadRequestException('El nombre de la sucursal es requerido.');
         }
-
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -62,14 +62,12 @@ export class BranchesService {
             await queryRunner.query(
                 `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
-
             const [branch] = await queryRunner.query(
                 `INSERT INTO branches (tenant_id, name, address, phone, is_main)
                  VALUES ($1, $2, $3, $4, false)
                  RETURNING *`,
                 [tenantId, data.name.trim(), data.address || null, data.phone || null]
             );
-
             // Inicializar stock en 0 para todos los productos existentes
             await queryRunner.query(`
                 INSERT INTO branch_stock (branch_id, product_id, tenant_id, quantity)
@@ -78,9 +76,7 @@ export class BranchesService {
                 WHERE p.tenant_id = $2
                 ON CONFLICT (branch_id, product_id) DO NOTHING
             `, [branch.id, tenantId]);
-
             await queryRunner.commitTransaction();
-            this.logger.log(`Sucursal "${data.name}" creada para tenant ${tenantId}`);
             return { success: true, message: 'Sucursal creada correctamente.', data: branch };
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
@@ -140,7 +136,8 @@ export class BranchesService {
                     p.stock_quantity         AS total_quantity,
                     c.name AS category_name
                 FROM products p
-                LEFT JOIN branch_stock bs ON bs.product_id = p.id AND bs.branch_id = $2
+                LEFT JOIN branch_stock bs
+                    ON bs.product_id = p.id AND bs.branch_id = $2
                 LEFT JOIN categories c ON p.category_id = c.id
                 WHERE p.tenant_id = $1
                 ORDER BY p.name ASC
@@ -150,6 +147,69 @@ export class BranchesService {
         } catch (error) {
             await queryRunner.rollbackTransaction();
             throw new InternalServerErrorException('Error cargando stock de sucursal.');
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    // ── INGRESO DIRECTO DE STOCK EN SUCURSAL ──────────────────────────────────
+    async addBranchStock(tenantId: string, branchId: string, data: {
+        productId: string;
+        quantity: number;
+        reason?: string;
+    }) {
+        if (data.quantity <= 0) {
+            throw new BadRequestException('La cantidad debe ser mayor a 0.');
+        }
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            await queryRunner.query(
+                `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
+            );
+            // Verificar que el producto existe
+            const [product] = await queryRunner.query(
+                `SELECT id, name, stock_quantity FROM products
+                 WHERE id = $1 AND tenant_id = $2`,
+                [data.productId, tenantId]
+            );
+            if (!product) throw new BadRequestException('Producto no encontrado.');
+
+            // Actualizar stock en la sucursal
+            await queryRunner.query(`
+                INSERT INTO branch_stock (branch_id, product_id, tenant_id, quantity)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (branch_id, product_id)
+                DO UPDATE SET
+                    quantity   = branch_stock.quantity + $4,
+                    updated_at = NOW()
+            `, [branchId, data.productId, tenantId, data.quantity]);
+
+            // Actualizar stock global del producto
+            await queryRunner.query(`
+                UPDATE products SET stock_quantity = stock_quantity + $1
+                WHERE id = $2 AND tenant_id = $3
+            `, [data.quantity, data.productId, tenantId]);
+
+            // Registrar en kardex
+            try {
+                await queryRunner.query(`
+                    INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason)
+                    VALUES ($1, $2, 'INPUT', $3, $4)
+                `, [tenantId, data.productId, data.quantity,
+                    data.reason || `Ingreso directo a sucursal`]);
+            } catch { /* kardex opcional */ }
+
+            await queryRunner.commitTransaction();
+            return {
+                success: true,
+                message: `${data.quantity} unidades de "${product.name}" agregadas a la sucursal.`,
+            };
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            if (error instanceof BadRequestException) throw error;
+            throw new InternalServerErrorException(error.message);
         } finally {
             await queryRunner.release();
         }
@@ -168,7 +228,6 @@ export class BranchesService {
         if (data.fromBranchId === data.toBranchId) {
             throw new BadRequestException('Las sucursales de origen y destino deben ser diferentes.');
         }
-
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -177,43 +236,40 @@ export class BranchesService {
                 `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
 
-            // Verificar stock disponible en sucursal origen
+            // Verificar stock en origen — SIN FOR UPDATE en outer join
             const [fromStock] = await queryRunner.query(`
-    SELECT COALESCE(bs.quantity, 0) AS quantity
-    FROM branch_stock bs
-    WHERE bs.product_id = $1 AND bs.branch_id = $2
-    FOR UPDATE
-`, [data.productId, data.fromBranchId]);
+                SELECT COALESCE(quantity, 0) AS quantity
+                FROM branch_stock
+                WHERE product_id = $1 AND branch_id = $2
+            `, [data.productId, data.fromBranchId]);
 
-const [producto] = await queryRunner.query(`
-    SELECT name FROM products WHERE id = $1
-`, [data.productId]);
+            const [producto] = await queryRunner.query(
+                `SELECT name FROM products WHERE id = $1`, [data.productId]
+            );
 
-            if (!fromStock) throw new BadRequestException('Este producto no tiene stock asignado en esta sucursal.');
-            if (!producto)  throw new BadRequestException('Producto no encontrado.');
-            if (Number(fromStock.quantity) < data.quantity) {
+            if (!producto) throw new BadRequestException('Producto no encontrado.');
+
+            const stockDisponible = Number(fromStock?.quantity || 0);
+            if (stockDisponible < data.quantity) {
                 throw new BadRequestException(
                     `Stock insuficiente en sucursal origen. ` +
-                    `Disponible: ${fromStock.quantity}, solicitado: ${data.quantity}.`
+                    `Disponible: ${stockDisponible}, solicitado: ${data.quantity}.`
                 );
             }
 
             // Descontar de origen
             await queryRunner.query(`
-                INSERT INTO branch_stock (branch_id, product_id, tenant_id, quantity)
-                VALUES ($1, $2, $3, -$4)
-                ON CONFLICT (branch_id, product_id)
-                DO UPDATE SET quantity = branch_stock.quantity - $4,
-                              updated_at = NOW()
-            `, [data.fromBranchId, data.productId, tenantId, data.quantity]);
+                UPDATE branch_stock
+                SET quantity = quantity - $1, updated_at = NOW()
+                WHERE product_id = $2 AND branch_id = $3
+            `, [data.quantity, data.productId, data.fromBranchId]);
 
             // Agregar a destino
             await queryRunner.query(`
                 INSERT INTO branch_stock (branch_id, product_id, tenant_id, quantity)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (branch_id, product_id)
-                DO UPDATE SET quantity = branch_stock.quantity + $4,
-                              updated_at = NOW()
+                DO UPDATE SET quantity = branch_stock.quantity + $4, updated_at = NOW()
             `, [data.toBranchId, data.productId, tenantId, data.quantity]);
 
             await queryRunner.commitTransaction();
@@ -239,12 +295,11 @@ const [producto] = await queryRunner.query(`
             await queryRunner.query(
                 `SELECT set_config('app.current_tenant', $1, true)`, [tenantId]
             );
-
             const [stats] = await queryRunner.query(`
                 SELECT
-                    COUNT(i.id)::int                         AS total_invoices,
-                    COALESCE(SUM(i.total_amount), 0)         AS total_revenue,
-                    COALESCE(AVG(i.total_amount), 0)         AS avg_ticket
+                    COUNT(i.id)::int                     AS total_invoices,
+                    COALESCE(SUM(i.total_amount), 0)     AS total_revenue,
+                    COALESCE(AVG(i.total_amount), 0)     AS avg_ticket
                 FROM invoices i
                 WHERE i.tenant_id = $1 AND i.branch_id = $2
             `, [tenantId, branchId]);
@@ -260,8 +315,22 @@ const [producto] = await queryRunner.query(`
                 ORDER BY issue_date ASC
             `, [tenantId, branchId]);
 
+            // Top productos vendidos en esta sucursal
+            const topProducts = await queryRunner.query(`
+                SELECT
+                    ii.description AS name,
+                    SUM(ii.quantity)::int AS total_sold,
+                    SUM(ii.total_price) AS revenue
+                FROM invoice_items ii
+                JOIN invoices i ON ii.invoice_id = i.id
+                WHERE i.tenant_id = $1 AND i.branch_id = $2
+                GROUP BY ii.description
+                ORDER BY total_sold DESC
+                LIMIT 5
+            `, [tenantId, branchId]);
+
             await queryRunner.commitTransaction();
-            return { success: true, data: { stats, lastDays } };
+            return { success: true, data: { stats, lastDays, topProducts } };
         } catch (error) {
             await queryRunner.rollbackTransaction();
             throw new InternalServerErrorException('Error cargando stats de sucursal.');

@@ -97,18 +97,20 @@ export class InvoiceService {
             const tieneDetraccion = (invoiceData as any).hasDetraction || false;
             const detPorcentaje = (invoiceData as any).detractionPercent || 0;
             const detMonto = (invoiceData as any).detractionAmount || 0;
+              const branchId = (invoiceData as any).branchId || null;
 
             // ── Insertar cabecera de factura ──────────────────────────────────
             const insertResult = await queryRunner.query(
                 `INSERT INTO invoices
                  (tenant_id, customer_document, total_amount, serie, correlative,
                   issue_date, issue_time, payment_method,
-                  has_detraction, detraction_percent, detraction_amount)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                   has_detraction, detraction_percent, detraction_amount,
+                   branch_id, xml_ubl_status)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PENDIENTE')
                  RETURNING id`,
                 [tenantId, invoiceData.customer.documentNumber, invoiceData.totalAmount,
                  serie, nextCorrelative, invoiceData.issueDate, invoiceData.issueTime,
-                 metodoPago, tieneDetraccion, detPorcentaje, detMonto]
+                  metodoPago, tieneDetraccion, detPorcentaje, detMonto, branchId]
             );
             invoiceId = insertResult[0].id;
 
@@ -149,6 +151,16 @@ export class InvoiceService {
                              WHERE id = $2 AND tenant_id = $3`,
                             [item.quantity, productId, tenantId]
                         );
+
+                        // Descontar del stock de la sucursal si viene branch_id
+                        if (branchId) {
+                            await queryRunner.query(
+                                `UPDATE branch_stock
+                                 SET quantity = GREATEST(quantity - $1, 0), updated_at = NOW()
+                                 WHERE product_id = $2 AND branch_id = $3`,
+                                [item.quantity, productId, branchId]
+                            );
+                        }
 
                         // ── Kardex de salida ──────────────────────────────────
                         // Nota: si la tabla inventory_movements no existe aún,
