@@ -179,15 +179,18 @@ export class BranchesService {
 
             // Verificar stock disponible en sucursal origen
             const [fromStock] = await queryRunner.query(`
-                SELECT COALESCE(bs.quantity, 0) AS quantity, p.name
-                FROM products p
-                LEFT JOIN branch_stock bs ON bs.product_id = p.id AND bs.branch_id = $1
-                WHERE p.id = $2 AND p.tenant_id = $3
-                FOR UPDATE
-            `, [data.fromBranchId, data.productId, tenantId]);
+    SELECT COALESCE(bs.quantity, 0) AS quantity
+    FROM branch_stock bs
+    WHERE bs.product_id = $1 AND bs.branch_id = $2
+    FOR UPDATE
+`, [data.productId, data.fromBranchId]);
 
-            if (!fromStock) throw new BadRequestException('Producto no encontrado.');
+const [producto] = await queryRunner.query(`
+    SELECT name FROM products WHERE id = $1
+`, [data.productId]);
 
+            if (!fromStock) throw new BadRequestException('Este producto no tiene stock asignado en esta sucursal.');
+            if (!producto)  throw new BadRequestException('Producto no encontrado.');
             if (Number(fromStock.quantity) < data.quantity) {
                 throw new BadRequestException(
                     `Stock insuficiente en sucursal origen. ` +
@@ -216,7 +219,7 @@ export class BranchesService {
             await queryRunner.commitTransaction();
             return {
                 success: true,
-                message: `${data.quantity} unidades de "${fromStock.name}" transferidas correctamente.`,
+                message: `${data.quantity} unidades de "${producto.name}" transferidas correctamente.`,
             };
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
