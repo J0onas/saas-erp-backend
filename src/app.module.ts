@@ -13,6 +13,7 @@ import { UsersModule } from './users/users.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { CategoriesModule } from './categories/categories.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
     imports: [
@@ -34,6 +35,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
         InventoryModule,
         CategoriesModule,
         SuppliersModule,
+        AdminModule,
     ],
     controllers: [AppController],
     providers: [AppService],
