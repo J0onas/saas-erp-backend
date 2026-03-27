@@ -33,7 +33,6 @@ export class ReportsController {
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('BOM', '\uFEFF'); // BOM para Excel en Windows
 
     // BOM UTF-8 para que Excel lo abra correctamente
     res.send('\uFEFF' + csv);
