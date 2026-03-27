@@ -16,6 +16,8 @@ import { SuppliersModule } from './suppliers/suppliers.module';
 import { AdminModule } from './admin/admin.module';
 import { PlansModule } from './plans/plans.module';
 import { BranchesModule } from './branches/branches.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
     imports: [
@@ -40,6 +42,8 @@ import { BranchesModule } from './branches/branches.module';
         AdminModule,
         PlansModule,
         BranchesModule,
+        NotificationsModule,
+        ReportsModule,
     ],
     controllers: [AppController],
     providers: [AppService],

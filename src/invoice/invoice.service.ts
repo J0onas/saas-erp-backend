@@ -6,6 +6,7 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { SunatXmlBuilder } from './utils/SunatXmlBuilder';
 import { DataSource } from 'typeorm';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InvoiceService {
@@ -14,7 +15,8 @@ export class InvoiceService {
     constructor(
         private readonly dataSource: DataSource,
         private readonly httpService: HttpService,
-        private readonly emailService: EmailService
+        private readonly emailService: EmailService,
+        private readonly notifications: NotificationsService
     ) {}
 
     // ── EMITIR FACTURA ────────────────────────────────────────────────────────
@@ -246,6 +248,45 @@ export class InvoiceService {
             `Gracias por su preferencia.`
         );
         const whatsappLink = `https://wa.me/?text=${whatsappText}`;
+
+        // ── Notificar nueva factura ───────────────────────────────────────────
+        const branchName = (invoiceData as any).branchId 
+            ? (await this.dataSource.query(
+                `SELECT name FROM branches WHERE id = $1 AND tenant_id = $2`,
+                [(invoiceData as any).branchId, tenantId]
+            )).length > 0 
+                ? (await this.dataSource.query(
+                    `SELECT name FROM branches WHERE id = $1 AND tenant_id = $2`,
+                    [(invoiceData as any).branchId, tenantId]
+                ))[0].name 
+                : undefined
+            : undefined;
+
+        this.notifications.notifyNewInvoice(
+            tenantId,
+            realSerieNumber,
+            invoiceData.totalAmount,
+            branchName
+        );
+
+        // ── Verificar stock bajo después de la venta ──────────────────────────
+        if (invoiceData.items && invoiceData.items.length > 0) {
+            for (const item of invoiceData.items) {
+                if ((item as any).productId) {
+                    const [prod] = await this.dataSource.query(
+                        `SELECT name, stock_quantity FROM products WHERE id = $1`,
+                        [(item as any).productId]
+                    );
+                    if (prod && Number(prod.stock_quantity) <= 5) {
+                        this.notifications.notifyLowStock(
+                            tenantId,
+                            prod.name,
+                            Number(prod.stock_quantity)
+                        );
+                    }
+                }
+            }
+        }
 
         return {
             success: true,
