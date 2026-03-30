@@ -104,7 +104,7 @@ export class InvoiceController {
                 body: {
                     items: [{
                         id: `plan_${body.planName.toLowerCase()}`,
-                        title: `Plan ${body.planName} - SaaS POS`,
+                        title: `Plan ${body.planName} - POSmart`,
                         description: 'Suscripción facturación electrónica',
                         quantity: 1,
                         unit_price: Number(body.precio),

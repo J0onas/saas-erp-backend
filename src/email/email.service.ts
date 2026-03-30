@@ -22,7 +22,7 @@ export class EmailService {
             return;
         }
 
-        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromName    = process.env.EMAIL_FROM_NAME || 'POSmart';
         const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
         // Nota: con el plan gratuito de Resend solo puedes enviar desde
         // noreply@resend.dev o desde un dominio verificado propio.
@@ -142,7 +142,7 @@ export class EmailService {
             return false;
         }
 
-        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromName    = process.env.EMAIL_FROM_NAME || 'POSmart';
         const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
         const frontendUrl = process.env.FRONTEND_URL    || 'http://localhost:3000';
         const resetLink   = `${frontendUrl}/reset-password?token=${resetToken}`;
@@ -221,7 +221,7 @@ export class EmailService {
                 body: JSON.stringify({
                     from:    `${fromName} <${fromAddress}>`,
                     to:      [toEmail],
-                    subject: 'Recupera tu contraseña - SaaS POS',
+                    subject: 'Recupera tu contraseña - POSmart',
                     html:    htmlBody,
                 }),
             });
@@ -255,7 +255,7 @@ export class EmailService {
             return false;
         }
 
-        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromName    = process.env.EMAIL_FROM_NAME || 'POSmart';
         const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
 
         const htmlBody = `
@@ -322,7 +322,7 @@ export class EmailService {
                 body: JSON.stringify({
                     from:    `${fromName} <${fromAddress}>`,
                     to:      [toEmail],
-                    subject: 'Tu contraseña ha sido actualizada - SaaS POS',
+                    subject: 'Tu contraseña ha sido actualizada - POSmart',
                     html:    htmlBody,
                 }),
             });
@@ -352,7 +352,7 @@ export class EmailService {
         const apiKey = process.env.RESEND_API_KEY;
         if (!apiKey) return false;
 
-        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromName    = process.env.EMAIL_FROM_NAME || 'POSmart';
         const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
 
         try {
@@ -393,7 +393,7 @@ export class EmailService {
             return false;
         }
 
-        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromName    = process.env.EMAIL_FROM_NAME || 'POSmart';
         const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
         const frontendUrl = process.env.FRONTEND_URL    || 'http://localhost:3000';
         const verifyLink  = `${frontendUrl}/verify-email?token=${verificationToken}`;
@@ -471,7 +471,7 @@ export class EmailService {
                 body: JSON.stringify({
                     from:    `${fromName} <${fromAddress}>`,
                     to:      [toEmail],
-                    subject: 'Verifica tu correo electrónico - SaaS POS',
+                    subject: 'Verifica tu correo electrónico - POSmart',
                     html:    htmlBody,
                 }),
             });
@@ -505,7 +505,7 @@ export class EmailService {
             return false;
         }
 
-        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromName    = process.env.EMAIL_FROM_NAME || 'POSmart';
         const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
         const frontendUrl = process.env.FRONTEND_URL    || 'http://localhost:3000';
 
