@@ -1,17 +1,23 @@
 import {
     Injectable, UnauthorizedException,
     ConflictException, BadRequestException,
+    Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
+    private readonly logger = new Logger(AuthService.name);
+
     constructor(
         private dataSource: DataSource,
         private jwtService: JwtService,
+        private emailService: EmailService,
     ) {}
 
     // ── LOGIN ─────────────────────────────────────────────────────────────────
@@ -148,6 +154,199 @@ export class AuthService {
                 error instanceof BadRequestException
             ) throw error;
             throw new Error('Error interno al crear la cuenta. Intenta de nuevo.');
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ══ RECUPERACIÓN DE CONTRASEÑA ════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Genera un token seguro de 64 caracteres hexadecimales
+     */
+    private generateSecureToken(): string {
+        return crypto.randomBytes(32).toString('hex');
+    }
+
+    /**
+     * Hashea el token para almacenarlo en la BD (no guardamos tokens en texto plano)
+     */
+    private hashToken(token: string): string {
+        return crypto.createHash('sha256').update(token).digest('hex');
+    }
+
+    /**
+     * Solicitar recuperación de contraseña
+     * - Genera token seguro
+     * - Guarda hash del token en BD con expiración de 1 hora
+     * - Envía email con el link de recuperación
+     */
+    async forgotPassword(email: string): Promise<{ message: string }> {
+        this.logger.log(`Solicitud de recuperación para: ${email}`);
+
+        // Buscar usuario
+        const users = await this.dataSource.query(
+            `SELECT id, email, full_name FROM users WHERE email = $1`,
+            [email.toLowerCase().trim()]
+        );
+
+        // Siempre retornamos éxito para no revelar si el email existe (seguridad)
+        if (!users || users.length === 0) {
+            this.logger.warn(`Email no encontrado: ${email} (respondemos éxito por seguridad)`);
+            return { message: 'Si el correo existe, recibirás las instrucciones.' };
+        }
+
+        const user = users[0];
+
+        // Generar token seguro
+        const rawToken = this.generateSecureToken();
+        const hashedToken = this.hashToken(rawToken);
+
+        // Invalidar tokens anteriores del usuario
+        await this.dataSource.query(
+            `UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false`,
+            [user.id]
+        );
+
+        // Guardar nuevo token con expiración de 1 hora
+        await this.dataSource.query(
+            `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+             VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+            [user.id, hashedToken]
+        );
+
+        // Enviar email (en segundo plano, no bloqueamos la respuesta)
+        this.emailService.sendPasswordResetEmail(
+            user.email,
+            user.full_name || 'Usuario',
+            rawToken
+        ).catch(err => {
+            this.logger.error(`Error enviando email de recuperación: ${err.message}`);
+        });
+
+        this.logger.log(`Token de recuperación generado para: ${email}`);
+        return { message: 'Si el correo existe, recibirás las instrucciones.' };
+    }
+
+    /**
+     * Verificar si un token de recuperación es válido
+     */
+    async verifyResetToken(token: string): Promise<{ valid: boolean; email?: string }> {
+        const hashedToken = this.hashToken(token);
+
+        const results = await this.dataSource.query(
+            `SELECT prt.id, prt.user_id, prt.expires_at, prt.used, u.email, u.full_name
+             FROM password_reset_tokens prt
+             JOIN users u ON u.id = prt.user_id
+             WHERE prt.token_hash = $1`,
+            [hashedToken]
+        );
+
+        if (!results || results.length === 0) {
+            return { valid: false };
+        }
+
+        const tokenRecord = results[0];
+
+        // Verificar si ya fue usado
+        if (tokenRecord.used) {
+            return { valid: false };
+        }
+
+        // Verificar si expiró
+        if (new Date(tokenRecord.expires_at) < new Date()) {
+            return { valid: false };
+        }
+
+        return { 
+            valid: true, 
+            email: tokenRecord.email 
+        };
+    }
+
+    /**
+     * Restablecer contraseña con token válido
+     */
+    async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+        if (!newPassword || newPassword.length < 6) {
+            throw new BadRequestException('La contraseña debe tener al menos 6 caracteres.');
+        }
+
+        const hashedToken = this.hashToken(token);
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            // Buscar y validar token
+            const results = await queryRunner.query(
+                `SELECT prt.id, prt.user_id, prt.expires_at, prt.used, u.email, u.full_name
+                 FROM password_reset_tokens prt
+                 JOIN users u ON u.id = prt.user_id
+                 WHERE prt.token_hash = $1
+                 FOR UPDATE`,
+                [hashedToken]
+            );
+
+            if (!results || results.length === 0) {
+                throw new BadRequestException('El enlace de recuperación no es válido.');
+            }
+
+            const tokenRecord = results[0];
+
+            // Verificar si ya fue usado
+            if (tokenRecord.used) {
+                throw new BadRequestException('Este enlace ya fue utilizado. Solicita uno nuevo.');
+            }
+
+            // Verificar si expiró
+            if (new Date(tokenRecord.expires_at) < new Date()) {
+                throw new BadRequestException('El enlace ha expirado. Solicita uno nuevo.');
+            }
+
+            // Hashear nueva contraseña
+            const salt = await bcrypt.genSalt(10);
+            const passwordHash = await bcrypt.hash(newPassword, salt);
+
+            // Actualizar contraseña del usuario
+            await queryRunner.query(
+                `UPDATE users SET password_hash = $1 WHERE id = $2`,
+                [passwordHash, tokenRecord.user_id]
+            );
+
+            // Marcar token como usado
+            await queryRunner.query(
+                `UPDATE password_reset_tokens SET used = true, used_at = NOW() WHERE id = $1`,
+                [tokenRecord.id]
+            );
+
+            // Invalidar todos los demás tokens del usuario
+            await queryRunner.query(
+                `UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND id != $2`,
+                [tokenRecord.user_id, tokenRecord.id]
+            );
+
+            await queryRunner.commitTransaction();
+
+            // Enviar email de confirmación (en segundo plano)
+            this.emailService.sendPasswordChangedEmail(
+                tokenRecord.email,
+                tokenRecord.full_name || 'Usuario'
+            ).catch(err => {
+                this.logger.error(`Error enviando confirmación de cambio: ${err.message}`);
+            });
+
+            this.logger.log(`Contraseña actualizada para: ${tokenRecord.email}`);
+            return { message: 'Tu contraseña ha sido actualizada exitosamente.' };
+
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            if (error instanceof BadRequestException) throw error;
+            this.logger.error(`Error en resetPassword: ${error.message}`);
+            throw new BadRequestException('Error al actualizar la contraseña. Intenta de nuevo.');
         } finally {
             await queryRunner.release();
         }

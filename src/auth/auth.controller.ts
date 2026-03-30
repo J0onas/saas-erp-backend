@@ -1,6 +1,7 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Query } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto, ResetPasswordDto, VerifyTokenDto } from './dto/password-reset.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -28,5 +29,35 @@ export class AuthController {
         }
     ) {
         return await this.authService.registerTenant(body);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ══ RECUPERACIÓN DE CONTRASEÑA ════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // POST /api/v1/auth/forgot-password
+    // Body: { email }
+    // Envía email con link de recuperación
+    @Post('forgot-password')
+    @HttpCode(HttpStatus.OK)
+    async forgotPassword(@Body() body: ForgotPasswordDto) {
+        return await this.authService.forgotPassword(body.email);
+    }
+
+    // GET /api/v1/auth/verify-reset-token?token=xxx
+    // Verifica si el token es válido antes de mostrar el formulario
+    @Get('verify-reset-token')
+    @HttpCode(HttpStatus.OK)
+    async verifyResetToken(@Query() query: VerifyTokenDto) {
+        return await this.authService.verifyResetToken(query.token);
+    }
+
+    // POST /api/v1/auth/reset-password
+    // Body: { token, password }
+    // Actualiza la contraseña con un token válido
+    @Post('reset-password')
+    @HttpCode(HttpStatus.OK)
+    async resetPassword(@Body() body: ResetPasswordDto) {
+        return await this.authService.resetPassword(body.token, body.password);
     }
 }
