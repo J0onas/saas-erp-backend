@@ -374,4 +374,241 @@ export class EmailService {
             return false;
         }
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ══ VERIFICACIÓN DE EMAIL ══════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── ENVIAR EMAIL DE VERIFICACIÓN ──────────────────────────────────────────
+    async sendEmailVerification(
+        toEmail: string,
+        userName: string,
+        verificationToken: string
+    ): Promise<boolean> {
+        this.logger.log(`Enviando email de verificación a: ${toEmail}`);
+
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey) {
+            this.logger.warn('RESEND_API_KEY no configurado — email no enviado.');
+            return false;
+        }
+
+        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
+        const frontendUrl = process.env.FRONTEND_URL    || 'http://localhost:3000';
+        const verifyLink  = `${frontendUrl}/verify-email?token=${verificationToken}`;
+
+        const htmlBody = `
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Arial,sans-serif;">
+  <div style="max-width:600px;margin:32px auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    
+    <!-- Header con gradiente -->
+    <div style="background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);padding:40px 40px 32px;">
+      <div style="width:56px;height:56px;background:rgba(255,255,255,0.15);border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">
+        <span style="font-size:28px;">📧</span>
+      </div>
+      <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;">
+        Verifica tu correo electrónico
+      </h1>
+      <p style="margin:8px 0 0;color:rgba(255,255,255,0.8);font-size:15px;">
+        ${fromName}
+      </p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:40px;">
+      <p style="color:#374151;font-size:16px;margin:0 0 20px;line-height:1.6;">
+        ¡Hola <strong>${userName}</strong>!
+      </p>
+      <p style="color:#6b7280;font-size:15px;line-height:1.7;margin:0 0 28px;">
+        Gracias por registrarte. Para completar tu registro y activar tu cuenta, 
+        por favor verifica tu correo electrónico haciendo clic en el botón de abajo.
+      </p>
+
+      <!-- CTA Button -->
+      <div style="text-align:center;margin:32px 0;">
+        <a href="${verifyLink}" 
+           style="display:inline-block;background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;padding:16px 40px;border-radius:12px;box-shadow:0 4px 14px rgba(99,102,241,0.4);">
+          Verificar mi correo
+        </a>
+      </div>
+
+      <!-- Info -->
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:16px 20px;margin:28px 0;">
+        <p style="margin:0;color:#92400e;font-size:14px;line-height:1.6;">
+          <strong>⏰ Este enlace expira en 24 horas</strong><br/>
+          Si no creaste esta cuenta, puedes ignorar este correo.
+        </p>
+      </div>
+
+      <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:24px 0 0;">
+        Si el botón no funciona, copia y pega este enlace en tu navegador:<br/>
+        <a href="${verifyLink}" style="color:#6366f1;word-break:break-all;">${verifyLink}</a>
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#f8fafc;border-top:1px solid #e5e7eb;padding:24px 40px;">
+      <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.6;">
+        <strong style="color:#6b7280;">${fromName}</strong> · Sistema de Facturación Electrónica
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+
+        try {
+            const res = await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type':  'application/json',
+                },
+                body: JSON.stringify({
+                    from:    `${fromName} <${fromAddress}>`,
+                    to:      [toEmail],
+                    subject: 'Verifica tu correo electrónico - SaaS POS',
+                    html:    htmlBody,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                this.logger.error(`Resend error (email verification): ${JSON.stringify(data)}`);
+                return false;
+            }
+
+            this.logger.log(`✅ Email de verificación enviado a ${toEmail} — ID: ${data.id}`);
+            return true;
+
+        } catch (error: any) {
+            this.logger.error(`Error enviando email de verificación: ${error.message}`);
+            return false;
+        }
+    }
+
+    // ── ENVIAR EMAIL DE BIENVENIDA (después de verificar) ─────────────────────
+    async sendWelcomeEmail(
+        toEmail: string,
+        userName: string
+    ): Promise<boolean> {
+        this.logger.log(`Enviando email de bienvenida a: ${toEmail}`);
+
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey) {
+            this.logger.warn('RESEND_API_KEY no configurado — email no enviado.');
+            return false;
+        }
+
+        const fromName    = process.env.EMAIL_FROM_NAME || 'SaaS POS';
+        const fromAddress = process.env.EMAIL_FROM      || 'noreply@resend.dev';
+        const frontendUrl = process.env.FRONTEND_URL    || 'http://localhost:3000';
+
+        const htmlBody = `
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Arial,sans-serif;">
+  <div style="max-width:600px;margin:32px auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    
+    <!-- Header con gradiente -->
+    <div style="background:linear-gradient(135deg, #059669 0%, #10b981 100%);padding:40px 40px 32px;">
+      <div style="width:56px;height:56px;background:rgba(255,255,255,0.15);border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">
+        <span style="font-size:28px;">🎉</span>
+      </div>
+      <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;">
+        ¡Bienvenido a ${fromName}!
+      </h1>
+      <p style="margin:8px 0 0;color:rgba(255,255,255,0.8);font-size:15px;">
+        Tu cuenta ha sido verificada
+      </p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:40px;">
+      <p style="color:#374151;font-size:16px;margin:0 0 20px;line-height:1.6;">
+        ¡Hola <strong>${userName}</strong>!
+      </p>
+      <p style="color:#6b7280;font-size:15px;line-height:1.7;margin:0 0 28px;">
+        Tu correo ha sido verificado exitosamente. Ahora tienes acceso completo a todas 
+        las funcionalidades de tu cuenta. ¡Comienza a gestionar tu negocio de manera eficiente!
+      </p>
+
+      <!-- Features -->
+      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:20px;margin:24px 0;">
+        <p style="margin:0 0 12px;color:#166534;font-size:14px;font-weight:600;">
+          🚀 Con tu cuenta puedes:
+        </p>
+        <ul style="margin:0;padding-left:20px;color:#15803d;font-size:14px;line-height:1.8;">
+          <li>Emitir facturas y boletas electrónicas</li>
+          <li>Gestionar tu inventario</li>
+          <li>Controlar tus ventas y reportes</li>
+          <li>Y mucho más...</li>
+        </ul>
+      </div>
+
+      <!-- CTA Button -->
+      <div style="text-align:center;margin:32px 0;">
+        <a href="${frontendUrl}/login" 
+           style="display:inline-block;background:linear-gradient(135deg, #059669 0%, #10b981 100%);color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;padding:16px 40px;border-radius:12px;box-shadow:0 4px 14px rgba(5,150,105,0.4);">
+          Iniciar sesión
+        </a>
+      </div>
+
+      <!-- Trial info -->
+      <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:16px 20px;margin:24px 0;">
+        <p style="margin:0;color:#1e40af;font-size:14px;line-height:1.6;">
+          <strong>🎁 14 días de prueba gratuita</strong><br/>
+          Disfruta de todas las funcionalidades premium sin costo durante tu periodo de prueba.
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#f8fafc;border-top:1px solid #e5e7eb;padding:24px 40px;">
+      <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.6;">
+        ¿Tienes preguntas? Responde a este correo y te ayudaremos.<br/><br/>
+        <strong style="color:#6b7280;">${fromName}</strong> · Sistema de Facturación Electrónica
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+
+        try {
+            const res = await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type':  'application/json',
+                },
+                body: JSON.stringify({
+                    from:    `${fromName} <${fromAddress}>`,
+                    to:      [toEmail],
+                    subject: `¡Bienvenido a ${fromName}! Tu cuenta está lista`,
+                    html:    htmlBody,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                this.logger.error(`Resend error (welcome): ${JSON.stringify(data)}`);
+                return false;
+            }
+
+            this.logger.log(`✅ Email de bienvenida enviado a ${toEmail} — ID: ${data.id}`);
+            return true;
+
+        } catch (error: any) {
+            this.logger.error(`Error enviando email de bienvenida: ${error.message}`);
+            return false;
+        }
+    }
 }

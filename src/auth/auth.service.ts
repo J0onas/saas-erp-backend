@@ -23,7 +23,7 @@ export class AuthService {
     // ── LOGIN ─────────────────────────────────────────────────────────────────
     async login(loginDto: LoginDto) {
         const users = await this.dataSource.query(
-            `SELECT id, tenant_id, email, password_hash, full_name, role
+            `SELECT id, tenant_id, email, password_hash, full_name, role, email_verified
              FROM users WHERE email = $1`,
             [loginDto.email]
         );
@@ -33,6 +33,14 @@ export class AuthService {
 
         const valid = await bcrypt.compare(loginDto.password, user.password_hash);
         if (!valid) throw new UnauthorizedException('Credenciales incorrectas');
+
+        // Verificar si el email está confirmado
+        if (!user.email_verified) {
+            throw new UnauthorizedException(
+                'Por favor verifica tu correo electrónico antes de iniciar sesión. ' +
+                'Revisa tu bandeja de entrada o solicita un nuevo enlace.'
+            );
+        }
 
         // ← role incluido en el JWT
         const payload = {
@@ -117,34 +125,47 @@ export class AuthService {
                 [tenantId, data.businessName, rucFinal, data.email]
             );
 
-            // Crear usuario admin con rol GERENTE
+            // Crear usuario admin con rol GERENTE (email NO verificado)
             const salt = await bcrypt.genSalt(10);
             const hash = await bcrypt.hash(data.password, salt);
             const fullName = data.fullName || data.businessName;
 
             const [newUser] = await queryRunner.query(
-                `INSERT INTO users (tenant_id, email, password_hash, full_name, role)
-                 VALUES ($1, $2, $3, $4, 'GERENTE')
+                `INSERT INTO users (tenant_id, email, password_hash, full_name, role, email_verified)
+                 VALUES ($1, $2, $3, $4, 'GERENTE', false)
                  RETURNING id`,
                 [tenantId, data.email, hash, fullName]
             );
 
+            // Generar token de verificación de email
+            const rawToken = this.generateSecureToken();
+            const hashedToken = this.hashToken(rawToken);
+
+            // Guardar token con expiración de 24 horas
+            await queryRunner.query(
+                `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
+                 VALUES ($1, $2, NOW() + INTERVAL '24 hours')`,
+                [newUser.id, hashedToken]
+            );
+
             await queryRunner.commitTransaction();
 
-            const payload = {
-                sub: newUser.id,
-                tenantId,
-                email: data.email,
-                name: fullName,
-                role: 'GERENTE',
-            };
+            // Enviar email de verificación (en segundo plano)
+            this.emailService.sendEmailVerification(
+                data.email,
+                fullName,
+                rawToken
+            ).catch(err => {
+                this.logger.error(`Error enviando email de verificación: ${err.message}`);
+            });
+
+            this.logger.log(`Usuario registrado (pendiente verificación): ${data.email}`);
 
             return {
                 success: true,
-                message: '¡Bienvenido! Tu cuenta fue creada con 14 días de prueba gratuita.',
-                access_token: this.jwtService.sign(payload),
-                user: { email: data.email, name: fullName, role: 'GERENTE' },
-                trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+                message: '¡Registro exitoso! Te enviamos un correo para verificar tu cuenta.',
+                requiresVerification: true,
+                email: data.email,
             };
 
         } catch (error: any) {
@@ -350,5 +371,165 @@ export class AuthService {
         } finally {
             await queryRunner.release();
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ══ VERIFICACIÓN DE EMAIL ══════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Verificar email con token
+     */
+    async verifyEmail(token: string): Promise<{ success: boolean; message: string }> {
+        const hashedToken = this.hashToken(token);
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            // Buscar token
+            const results = await queryRunner.query(
+                `SELECT evt.id, evt.user_id, evt.expires_at, evt.used, u.email, u.full_name, u.email_verified
+                 FROM email_verification_tokens evt
+                 JOIN users u ON u.id = evt.user_id
+                 WHERE evt.token_hash = $1
+                 FOR UPDATE`,
+                [hashedToken]
+            );
+
+            if (!results || results.length === 0) {
+                throw new BadRequestException('El enlace de verificación no es válido.');
+            }
+
+            const tokenRecord = results[0];
+
+            // Ya verificado
+            if (tokenRecord.email_verified) {
+                return { 
+                    success: true, 
+                    message: 'Tu correo ya estaba verificado. Puedes iniciar sesión.' 
+                };
+            }
+
+            // Token ya usado
+            if (tokenRecord.used) {
+                throw new BadRequestException('Este enlace ya fue utilizado.');
+            }
+
+            // Token expirado
+            if (new Date(tokenRecord.expires_at) < new Date()) {
+                throw new BadRequestException(
+                    'El enlace ha expirado. Solicita uno nuevo desde la página de inicio de sesión.'
+                );
+            }
+
+            // Marcar email como verificado
+            await queryRunner.query(
+                `UPDATE users SET email_verified = true, email_verified_at = NOW() WHERE id = $1`,
+                [tokenRecord.user_id]
+            );
+
+            // Marcar token como usado
+            await queryRunner.query(
+                `UPDATE email_verification_tokens SET used = true, used_at = NOW() WHERE id = $1`,
+                [tokenRecord.id]
+            );
+
+            await queryRunner.commitTransaction();
+
+            this.logger.log(`Email verificado: ${tokenRecord.email}`);
+
+            // Enviar email de bienvenida (opcional)
+            this.emailService.sendWelcomeEmail(
+                tokenRecord.email,
+                tokenRecord.full_name || 'Usuario'
+            ).catch(err => {
+                this.logger.error(`Error enviando email de bienvenida: ${err.message}`);
+            });
+
+            return { 
+                success: true, 
+                message: '¡Tu correo ha sido verificado! Ya puedes iniciar sesión.' 
+            };
+
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            if (error instanceof BadRequestException) throw error;
+            this.logger.error(`Error en verifyEmail: ${error.message}`);
+            throw new BadRequestException('Error al verificar el correo. Intenta de nuevo.');
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    /**
+     * Reenviar email de verificación
+     */
+    async resendVerificationEmail(email: string): Promise<{ message: string }> {
+        this.logger.log(`Solicitud de reenvío de verificación para: ${email}`);
+
+        // Buscar usuario
+        const users = await this.dataSource.query(
+            `SELECT id, email, full_name, email_verified FROM users WHERE email = $1`,
+            [email.toLowerCase().trim()]
+        );
+
+        // Siempre retornamos éxito para no revelar si el email existe
+        if (!users || users.length === 0) {
+            return { message: 'Si el correo existe, recibirás las instrucciones.' };
+        }
+
+        const user = users[0];
+
+        // Si ya está verificado
+        if (user.email_verified) {
+            return { message: 'Este correo ya está verificado. Puedes iniciar sesión.' };
+        }
+
+        // Invalidar tokens anteriores
+        await this.dataSource.query(
+            `UPDATE email_verification_tokens SET used = true WHERE user_id = $1 AND used = false`,
+            [user.id]
+        );
+
+        // Generar nuevo token
+        const rawToken = this.generateSecureToken();
+        const hashedToken = this.hashToken(rawToken);
+
+        // Guardar token con expiración de 24 horas
+        await this.dataSource.query(
+            `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
+             VALUES ($1, $2, NOW() + INTERVAL '24 hours')`,
+            [user.id, hashedToken]
+        );
+
+        // Enviar email
+        this.emailService.sendEmailVerification(
+            user.email,
+            user.full_name || 'Usuario',
+            rawToken
+        ).catch(err => {
+            this.logger.error(`Error reenviando email de verificación: ${err.message}`);
+        });
+
+        this.logger.log(`Token de verificación reenviado a: ${email}`);
+        return { message: 'Si el correo existe, recibirás las instrucciones.' };
+    }
+
+    /**
+     * Verificar estado de verificación de email
+     */
+    async checkEmailVerificationStatus(email: string): Promise<{ verified: boolean }> {
+        const users = await this.dataSource.query(
+            `SELECT email_verified FROM users WHERE email = $1`,
+            [email.toLowerCase().trim()]
+        );
+
+        if (!users || users.length === 0) {
+            return { verified: false };
+        }
+
+        return { verified: users[0].email_verified || false };
     }
 }

@@ -2,6 +2,7 @@ import { Controller, Post, Body, HttpCode, HttpStatus, Get, Query } from '@nestj
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto, ResetPasswordDto, VerifyTokenDto } from './dto/password-reset.dto';
+import { VerifyEmailDto, ResendVerificationDto } from './dto/email-verification.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -29,6 +30,35 @@ export class AuthController {
         }
     ) {
         return await this.authService.registerTenant(body);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ══ VERIFICACIÓN DE EMAIL ══════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // GET /api/v1/auth/verify-email?token=xxx
+    // Verifica el email del usuario
+    @Get('verify-email')
+    @HttpCode(HttpStatus.OK)
+    async verifyEmail(@Query() query: VerifyEmailDto) {
+        return await this.authService.verifyEmail(query.token);
+    }
+
+    // POST /api/v1/auth/resend-verification
+    // Body: { email }
+    // Reenvía el email de verificación
+    @Post('resend-verification')
+    @HttpCode(HttpStatus.OK)
+    async resendVerification(@Body() body: ResendVerificationDto) {
+        return await this.authService.resendVerificationEmail(body.email);
+    }
+
+    // GET /api/v1/auth/check-verification?email=xxx
+    // Verifica si el email ya está verificado
+    @Get('check-verification')
+    @HttpCode(HttpStatus.OK)
+    async checkVerification(@Query('email') email: string) {
+        return await this.authService.checkEmailVerificationStatus(email);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
