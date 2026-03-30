@@ -14,9 +14,9 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000', 
-      'https://posmart.vercel.app',
+      'https://posmart-app.vercel.app',
       // ¡EL PASE VIP MAESTRO! Acepta cualquier subdominio dinámico de tu proyecto en Vercel
-      /^https:\/\/posmart-.*\.vercel\.app$/
+      /^https:\/\/posmart-app-.*\.vercel\.app$/
     ],
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
