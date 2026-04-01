@@ -5,6 +5,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { InvoiceService } from './invoice.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { PayCreditDto } from './dto/pay-credit.dto';
 import { SubscriptionGuard } from '../auth/subscription.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -31,6 +32,26 @@ export class InvoiceController {
     @Get('history')
     async getHistory(@Req() req: any) {
         return await this.invoiceService.getInvoicesHistory(req.user.tenantId);
+    }
+
+    // ── CUENTAS POR COBRAR (créditos pendientes) ──────────────────────────────
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles('GERENTE', 'SUPERADMIN')
+    @Get('credits')
+    async getPendingCredits(@Req() req: any) {
+        return await this.invoiceService.getPendingCredits(req.user.tenantId);
+    }
+
+    // ── REGISTRAR PAGO DE CRÉDITO ─────────────────────────────────────────────
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles('CAJERO', 'GERENTE', 'SUPERADMIN')
+    @Post('credits/pay')
+    async payCredit(@Body() dto: PayCreditDto, @Req() req: any) {
+        return await this.invoiceService.payCredit(
+            req.user.tenantId,
+            dto.invoice_id,
+            dto.amount
+        );
     }
 
     // ── PDF ───────────────────────────────────────────────────────────────────

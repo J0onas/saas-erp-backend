@@ -580,4 +580,125 @@ export class InvoiceService {
             this.logger.error('Error activando suscripción:', error);
         }
     }
+
+    // ── CUENTAS POR COBRAR: CRÉDITOS PENDIENTES ───────────────────────────────
+    async getPendingCredits(tenantId: string) {
+        this.logger.log(`Consultando créditos pendientes para tenant ${tenantId}`);
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            await queryRunner.query(
+                `SELECT set_config('app.current_tenant', $1, true)`,
+                [tenantId]
+            );
+
+            const pendingCredits = await queryRunner.query(`
+                SELECT
+                    i.id,
+                    CONCAT(i.serie, '-', LPAD(i.correlative::text, 8, '0')) AS invoice_number,
+                    COALESCE(c.full_name, 'Cliente sin registrar') AS client_name,
+                    i.customer_document,
+                    TO_CHAR(i.issue_date, 'YYYY-MM-DD') AS issue_date,
+                    i.total_amount,
+                    COALESCE(i.amount_paid, 0) AS amount_paid,
+                    (i.total_amount - COALESCE(i.amount_paid, 0)) AS pending_amount,
+                    GREATEST(0, EXTRACT(DAY FROM (NOW() - i.issue_date)))::INT AS days_overdue
+                FROM invoices i
+                LEFT JOIN clients c 
+                    ON i.customer_document = c.document_number 
+                    AND c.tenant_id = i.tenant_id
+                WHERE i.payment_method = 'CREDITO'
+                  AND i.cancelled = false
+                  AND i.is_paid = false
+                ORDER BY i.issue_date ASC
+            `);
+
+            await queryRunner.commitTransaction();
+
+            const totalPending = pendingCredits.reduce(
+                (sum: number, inv: any) => sum + Number(inv.pending_amount), 0
+            );
+
+            return {
+                success: true,
+                total_pending: pendingCredits.length,
+                total_amount: totalPending,
+                credits: pendingCredits,
+            };
+
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            this.logger.error('Error obteniendo créditos pendientes:', error);
+            throw new InternalServerErrorException('No se pudo obtener los créditos pendientes.');
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    // ── REGISTRAR PAGO DE CRÉDITO ─────────────────────────────────────────────
+    async payCredit(tenantId: string, invoiceId: string, amountPaid: number) {
+        this.logger.log(`Registrando pago de crédito ${invoiceId}`);
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            await queryRunner.query(
+                `SELECT set_config('app.current_tenant', $1, true)`,
+                [tenantId]
+            );
+
+            // Obtener factura actual
+            const [invoice] = await queryRunner.query(
+                `SELECT id, total_amount, amount_paid, is_paid 
+                 FROM invoices WHERE id = $1`,
+                [invoiceId]
+            );
+
+            if (!invoice) {
+                throw new InternalServerErrorException('Factura no encontrada');
+            }
+
+            if (invoice.is_paid) {
+                throw new InternalServerErrorException('Esta factura ya fue pagada');
+            }
+
+            const currentPaid = Number(invoice.amount_paid) || 0;
+            const newAmountPaid = currentPaid + amountPaid;
+            const totalAmount = Number(invoice.total_amount);
+            const isPaidNow = newAmountPaid >= totalAmount;
+
+            await queryRunner.query(`
+                UPDATE invoices 
+                SET amount_paid = $1,
+                    is_paid = $2,
+                    paid_at = CASE WHEN $2 = true THEN NOW() ELSE paid_at END
+                WHERE id = $3
+            `, [newAmountPaid, isPaidNow, invoiceId]);
+
+            await queryRunner.commitTransaction();
+
+            return {
+                success: true,
+                message: isPaidNow ? 'Crédito pagado completamente' : 'Abono registrado',
+                invoice_id: invoiceId,
+                amount_paid: newAmountPaid,
+                pending_amount: Math.max(0, totalAmount - newAmountPaid),
+                is_paid: isPaidNow,
+            };
+
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            this.logger.error('Error registrando pago:', error);
+            throw new InternalServerErrorException(
+                error.message || 'No se pudo registrar el pago.'
+            );
+        } finally {
+            await queryRunner.release();
+        }
+    }
 }

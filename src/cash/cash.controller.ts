@@ -1,9 +1,9 @@
 import { Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CashService } from './cash.service';
-import { SubscriptionGuard } from '../auth/subscription.guard'; 
+import { SubscriptionGuard } from '../auth/subscription.guard';
+import { CloseCashSessionDto } from './dto/close-cash-session.dto';
 
-// --- FIX BUG: Solo 'cash', el api/v1 ya lo pone el main.ts automáticamente ---
 @Controller('cash')
 @UseGuards(AuthGuard('jwt'), SubscriptionGuard)
 export class CashController {
@@ -19,6 +19,13 @@ export class CashController {
     return await this.cashService.openBox(req.user.tenantId, req.user.email, body.initialAmount);
   }
 
+  // Cierre Ciego: el cajero solo reporta lo que contó
+  @Post('close-blind')
+  async closeBlind(@Body() dto: CloseCashSessionDto, @Req() req: any) {
+    return await this.cashService.closeBoxBlind(req.user.tenantId, dto);
+  }
+
+  // Cierre Legacy (mantiene compatibilidad con el endpoint anterior)
   @Post('close')
   async close(
     @Body() body: { finalAmountCash: number; notes?: string }, 
